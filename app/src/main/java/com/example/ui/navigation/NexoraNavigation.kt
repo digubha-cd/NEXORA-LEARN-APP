@@ -14,13 +14,18 @@ import androidx.navigation.compose.rememberNavController
 import com.example.core.storage.StudentPreferences
 import com.example.ui.screens.MainAppScreen
 
+import androidx.compose.runtime.remember
+import com.example.ui.screens.StudentIdentitySetupScreen
+
 object NexoraDestinations {
+    const val SETUP = "student_identity_setup"
     const val MAIN = "main"
 }
 
 /**
- * Main Navigation Host opening directly into the main NEXORA LEARN experience.
- * No login screen, no authentication gate, no billing/payment gates.
+ * Main Navigation Host for NEXORA LEARN.
+ * First launch: Opens simple Student Identity Setup (Name + Unique ID).
+ * Subsequent launches: Opens directly into MainAppScreen (Home) with no gates or logins.
  */
 @Composable
 fun NexoraNavHost(
@@ -29,12 +34,29 @@ fun NexoraNavHost(
 ) {
     val context = LocalContext.current
     val observedProfile by StudentPreferences.currentProfile.collectAsState()
+    val isSetupDone = remember { StudentPreferences.hasCompletedSetup(context) }
+    val initialDestination = if (isSetupDone) NexoraDestinations.MAIN else NexoraDestinations.SETUP
 
     NavHost(
         navController = navController,
-        startDestination = NexoraDestinations.MAIN,
+        startDestination = initialDestination,
         modifier = modifier
     ) {
+        // One-time First-Launch Student Identity Setup
+        composable(
+            route = NexoraDestinations.SETUP,
+            enterTransition = { fadeIn() },
+            exitTransition = { fadeOut() }
+        ) {
+            StudentIdentitySetupScreen(
+                onSetupComplete = {
+                    navController.navigate(NexoraDestinations.MAIN) {
+                        popUpTo(NexoraDestinations.SETUP) { inclusive = true }
+                    }
+                }
+            )
+        }
+
         // Main App Experience (Home, Subjects, Planner, Exam, Profile)
         composable(
             route = NexoraDestinations.MAIN,

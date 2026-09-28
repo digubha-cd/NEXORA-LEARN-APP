@@ -67,4 +67,46 @@ class StudentEntryTest {
         assertTrue(candidate.startsWith("NX-"))
         assertTrue(StudentIdGenerator.isValidStudentId(candidate))
     }
+
+    @Test
+    fun testFirstLaunchSetupFlowAndImmutability() {
+        // 1. Initial first-launch state
+        assertFalse(StudentPreferences.hasCompletedSetup(context))
+        assertFalse(StudentPreferences.isStudentIdImmutable(context))
+
+        // 2. Complete student identity setup
+        val studentName = "Priya Sharma"
+        val candidateId = StudentIdGenerator.generateCandidateId()
+        val completedProfile = StudentPreferences.completeIdentitySetup(context, studentName, candidateId)
+
+        // 3. Setup is completed and ID is immutable
+        assertTrue(StudentPreferences.hasCompletedSetup(context))
+        assertTrue(StudentPreferences.isStudentIdImmutable(context))
+        assertEquals(studentName, completedProfile.studentName)
+        assertEquals(candidateId, completedProfile.studentId)
+
+        // 4. Future launches retain completed setup and immutable ID
+        val reloaded = StudentPreferences.getStudentProfile(context)
+        assertEquals(studentName, reloaded.studentName)
+        assertEquals(candidateId, reloaded.studentId)
+        assertTrue(StudentPreferences.hasCompletedSetup(context))
+
+        // 5. Updating student name in profile does NOT change student ID
+        StudentPreferences.saveStudentName(context, "Priya S. Patel")
+        val updatedNameProfile = StudentPreferences.getStudentProfile(context)
+        assertEquals("Priya S. Patel", updatedNameProfile.studentName)
+        assertEquals(candidateId, updatedNameProfile.studentId)
+    }
+
+    @Test
+    fun testMultipleUniqueCandidateGenerations() {
+        val generatedIds = mutableSetOf<String>()
+        for (i in 1..100) {
+            val id = StudentIdGenerator.generateCandidateId()
+            assertTrue(StudentIdGenerator.isValidStudentId(id))
+            generatedIds.add(id)
+        }
+        // Collision resistance across 100 generations
+        assertEquals(100, generatedIds.size)
+    }
 }

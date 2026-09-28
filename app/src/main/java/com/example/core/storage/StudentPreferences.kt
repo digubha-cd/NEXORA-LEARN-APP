@@ -24,6 +24,8 @@ object StudentPreferences {
     private const val KEY_TARGET_MARKS = "key_target_marks"
     private const val KEY_AVATAR_COLOR = "key_avatar_color"
     private const val KEY_IS_DARK_MODE = "key_is_dark_mode"
+    private const val KEY_IDENTITY_SETUP_DONE = "key_identity_setup_done"
+    private const val KEY_STUDENT_ID_LOCKED = "key_student_id_locked"
 
     private val _currentProfile = MutableStateFlow<StudentProfile?>(null)
     val currentProfile: StateFlow<StudentProfile?> = _currentProfile.asStateFlow()
@@ -50,6 +52,53 @@ object StudentPreferences {
     fun setDarkMode(context: Context, enabled: Boolean) {
         getPrefs(context).edit().putBoolean(KEY_IS_DARK_MODE, enabled).apply()
         _isDarkModeFlow.value = enabled
+    }
+
+    /**
+     * Check if the one-time Student Identity Setup has been completed.
+     */
+    fun hasCompletedSetup(context: Context): Boolean {
+        val prefs = getPrefs(context)
+        val isExplicitlyCompleted = prefs.getBoolean(KEY_IDENTITY_SETUP_DONE, false)
+        if (isExplicitlyCompleted) return true
+        // Legacy fallback: if name and studentId were previously saved
+        val name = prefs.getString(KEY_STUDENT_NAME, "")?.trim().orEmpty()
+        val id = prefs.getString(KEY_STUDENT_ID, "")?.trim().orEmpty()
+        return name.isNotBlank() && id.isNotBlank() && prefs.contains(KEY_STUDENT_ID)
+    }
+
+    /**
+     * Check if Student ID is immutable and permanently locked.
+     */
+    fun isStudentIdImmutable(context: Context): Boolean {
+        val prefs = getPrefs(context)
+        return prefs.getBoolean(KEY_STUDENT_ID_LOCKED, false) || hasCompletedSetup(context)
+    }
+
+    /**
+     * Complete the first-launch Student Identity Setup.
+     * Atomically saves the student's name and permanent Student ID,
+     * locks the Student ID so it becomes immutable, and marks setup as completed.
+     */
+    fun completeIdentitySetup(context: Context, name: String, studentId: String): StudentProfile {
+        val trimmedName = name.trim()
+        val normalizedId = StudentIdGenerator.normalizeStudentId(studentId) ?: studentId.trim().uppercase()
+        val prefs = getPrefs(context)
+        prefs.edit()
+            .putString(KEY_STUDENT_NAME, trimmedName)
+            .putString(KEY_STUDENT_ID, normalizedId)
+            .putBoolean(KEY_IDENTITY_SETUP_DONE, true)
+            .putBoolean(KEY_STUDENT_ID_LOCKED, true)
+            .apply()
+
+        val existing = getStudentProfile(context)
+        val updatedProfile = existing.copy(
+            studentName = if (trimmedName.isNotBlank()) trimmedName else "Class 12 Student",
+            studentId = normalizedId,
+            updatedAt = System.currentTimeMillis()
+        )
+        _currentProfile.value = updatedProfile
+        return updatedProfile
     }
 
     /**
@@ -131,6 +180,8 @@ object StudentPreferences {
         prefs.edit()
             .putString(KEY_STUDENT_NAME, trimmedName)
             .putString(KEY_STUDENT_ID, normalizedId)
+            .putBoolean(KEY_IDENTITY_SETUP_DONE, true)
+            .putBoolean(KEY_STUDENT_ID_LOCKED, true)
             .apply()
 
         val existing = getStudentProfile(context)

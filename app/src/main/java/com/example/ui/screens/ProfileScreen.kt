@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.EmojiEvents
 import androidx.compose.material.icons.outlined.Language
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.PendingActions
 import androidx.compose.material.icons.outlined.Person
@@ -482,12 +483,23 @@ fun ProfileScreen(
                                     letterSpacing = 2.sp,
                                     modifier = Modifier.testTag("student_id_text")
                                 )
-                                Text(
-                                    text = "CLASS 12 COMMERCE",
-                                    color = NexoraTextMuted,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Lock,
+                                        contentDescription = "Permanent ID",
+                                        tint = NexoraTextMuted,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        text = "PERMANENT ID",
+                                        color = NexoraTextMuted,
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
                             }
                         }
 

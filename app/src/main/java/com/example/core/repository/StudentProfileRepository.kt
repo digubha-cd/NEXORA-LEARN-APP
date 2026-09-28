@@ -40,6 +40,15 @@ interface StudentProfileRepository {
         streakDays: Int,
         completedChapters: List<String>
     ): Result<Unit>
+    suspend fun registerUniqueStudentId(
+        userId: String,
+        studentName: String,
+        requestedStudentId: String
+    ): Result<String>
+    suspend fun isStudentIdAvailable(
+        candidateId: String,
+        currentUserId: String
+    ): Boolean
 }
 
 class FirestoreStudentProfileRepository(
@@ -154,6 +163,99 @@ class FirestoreStudentProfileRepository(
         }
 
         return@withContext updated
+    }
+
+    override suspend fun isStudentIdAvailable(candidateId: String, currentUserId: String): Boolean = withContext(Dispatchers.IO) {
+        if (!isFirebaseAvailable) return@withContext true
+        val normalized = StudentIdGenerator.normalizeStudentId(candidateId) ?: return@withContext false
+        try {
+            val db = FirebaseFirestore.getInstance()
+            val doc = db.collection("student_ids").document(normalized).get().awaitTask()
+            if (!doc.exists()) return@withContext true
+            val owner = doc.getString("userId")
+            return@withContext (owner == currentUserId)
+        } catch (e: Exception) {
+            Log.w("FirestoreRepo", "Error checking student ID availability: ${e.message}")
+            return@withContext true
+        }
+    }
+
+    override suspend fun registerUniqueStudentId(
+        userId: String,
+        studentName: String,
+        requestedStudentId: String
+    ): Result<String> = withContext(Dispatchers.IO) {
+        var candidate = StudentIdGenerator.normalizeStudentId(requestedStudentId)
+            ?: StudentIdGenerator.generateCandidateId()
+
+        if (!isFirebaseAvailable || userId.isBlank()) {
+            return@withContext Result.success(candidate)
+        }
+
+        val db = FirebaseFirestore.getInstance()
+
+        // Up to 10 attempts to register unique ID atomically using Firestore transactions
+        for (attempt in 1..10) {
+            val currentCandidate = candidate
+            try {
+                val claimed = suspendCancellableCoroutine<Boolean> { cont ->
+                    db.runTransaction { transaction ->
+                        val idDocRef = db.collection("student_ids").document(currentCandidate)
+                        val snapshot = transaction.get(idDocRef)
+
+                        if (snapshot.exists()) {
+                            val ownerId = snapshot.getString("userId")
+                            if (ownerId == userId) {
+                                // Already claimed by this same user
+                                true
+                            } else {
+                                // Collision: taken by another student
+                                false
+                            }
+                        } else {
+                            // Available: atomically claim this Student ID
+                            transaction.set(
+                                idDocRef,
+                                mapOf(
+                                    "studentId" to currentCandidate,
+                                    "userId" to userId,
+                                    "studentName" to studentName,
+                                    "createdAt" to System.currentTimeMillis()
+                                )
+                            )
+                            val studentDocRef = db.collection("students").document(userId)
+                            transaction.set(
+                                studentDocRef,
+                                mapOf(
+                                    "studentId" to currentCandidate,
+                                    "studentName" to studentName,
+                                    "updatedAt" to System.currentTimeMillis()
+                                ),
+                                SetOptions.merge()
+                            )
+                            true
+                        }
+                    }.addOnSuccessListener { success ->
+                        cont.resume(success)
+                    }.addOnFailureListener { ex ->
+                        cont.resumeWithException(ex)
+                    }
+                }
+
+                if (claimed) {
+                    Log.d("FirestoreRepo", "Atomically registered Student ID: $currentCandidate")
+                    return@withContext Result.success(currentCandidate)
+                } else {
+                    Log.w("FirestoreRepo", "Collision on candidate $currentCandidate (attempt $attempt). Generating next candidate...")
+                    candidate = StudentIdGenerator.generateCandidateId()
+                }
+            } catch (e: Exception) {
+                Log.w("FirestoreRepo", "Transaction error on attempt $attempt: ${e.message}")
+                return@withContext Result.success(currentCandidate)
+            }
+        }
+
+        return@withContext Result.success(candidate)
     }
 
     override suspend fun saveProfile(profile: StudentProfile): Result<Unit> = withContext(Dispatchers.IO) {
